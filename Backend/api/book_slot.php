@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once '../config/db.php';
+require_once '../utils/Mailer.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -33,7 +34,7 @@ try {
     $pdo->beginTransaction();
 
     // Check if slot is available (FOR UPDATE locks the row)
-    $stmt = $pdo->prepare("SELECT is_booked FROM slots WHERE id = :id FOR UPDATE");
+    $stmt = $pdo->prepare("SELECT is_booked, start_time, end_time FROM slots WHERE id = :id FOR UPDATE");
     $stmt->execute([':id' => $slotId]);
     $slot = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -64,6 +65,15 @@ try {
     ]);
 
     $pdo->commit();
+
+    // Send email confirmation
+    try {
+        $mailer = new Mailer();
+        $mailer->sendBookingConfirmation($email, $name, $slot['start_time'], $slot['end_time']);
+    } catch (Exception $e) {
+        // Log error but don't fail the request, as booking is already committed
+        error_log("Failed to send email: " . $e->getMessage());
+    }
 
     echo json_encode(['message' => 'Booking confirmed', 'booking_id' => $pdo->lastInsertId()]);
 
